@@ -1,6 +1,8 @@
 # Bayesian inference for the automultinomial model
 Code for the simulation studies in "Bayesian inference for the automultinomial model with an application to landcover data" (https://arxiv.org/abs/2602.12216).
 
+This repository includes the files necessary to fit the automultinomial model using Bayesian inference to simulated data from a hierarchical model with CAR random effects, and a mixture of Gaussian Processes.
+
 Multicategory lattice data arise in a wide variety of disciplines such as image analysis, biology, and forestry. We consider modeling such data with the automultinomial model, which can be viewed as a natural extension of the autologistic model to multicategory responses, or equivalently as an extension of the Potts model that incorporates covariate information into a pure-intercept model. The automultinomial model has the advantage of having a unique parameter that controls the spatial correlation. However, the model's likelihood involves an intractable normalizing function of the model parameters that poses serious computational problems for likelihood-based inference. We address this difficulty by performing Bayesian inference through the Double-Metropolis Hastings algorithm, and implement diagnostics to assess the convergence to the target posterior distribution. Through simulation studies and an application to land cover data, we find that the automultinomial model is flexible across a wide range of spatial correlations while maintaining a relatively simple specification. For large data sets we find it also has advantages over spatial generalized linear mixed models. To make this model practical for scientists, we provide recommendations for its specification and computational implementation.
 
-This repository includes the files necessary to fit the automultinomial model using Bayesian inference to simulated data from a hierarchical model with CAR random effects, and a mixture of Gaussian Processes.
+
