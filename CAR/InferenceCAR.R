@@ -1,10 +1,18 @@
-library(ggplot2)
 library(reticulate)
+
+mi_python_jax <- "/.conda/envs/jax_env/bin/python" #Set python directory
+use_python(mi_python_jax, required = TRUE)
+
+Sys.setenv(XLA_PYTHON_CLIENT_PREALLOCATE = "false")
+Sys.setenv(JAX_PLATFORMS = "cpu")
+
+library(ggplot2)
 library(doParallel)
 library(foreach)
 library(automultinomial)
+library(Matrix)
 
-source("autoMultiInferenceFunctionsImproved.R")
+source("autoMultiInferenceFunctions.R")
 
 #Load previously simulated dataset
 load("DatasetCAR.RData")
@@ -41,23 +49,71 @@ pseudo_est <- MPLE(X=X, y=yfac, A=A, ciLevel = 0.95)
 initial_beta <- pseudo_est$betaHat
 initial_gamma <- pseudo_est$gammaHat
 
+############################
+###Define parameter blocks##
+############################
+
+ini_val <- matrix(c(initial_beta, initial_gamma), nrow=1)
+
+d1 <- 3
+d2 <- 3
+
+ib <- list()
+ib[[1]] <- 1:d1
+ib[[2]] <- (d1+1):(d1+d2)
+ib[[3]] <- d1+d2+1
+
+#############################
+####Set proposal covariance##
+#############################
+
+#scale constant
+sc <- 1.7^2/d1
+
+#Estimated variance from pseudolikelihood
+Sigma_plk <- pseudo_est$variance
+
+#Cholesky decomposition
+
+Sigma_fixed <- chol(Sigma_plk)
+
+#Covariance for proposal at each block
+cov_p <- list()
+
+cov_p[[1]] <- sc*Sigma_fixed[1:d1,1:d1]
+cov_p[[2]] <- sc*Sigma_fixed[(d1+1):(d1+d2),(d1+1):(d1+d2)]
+cov_p[[3]] <- 1.9^2*Sigma_fixed[d1+d2+1,d1+d2+1]
+
 #Parameters for algorithm
 
 nchains <- 1
 
-sigma_gamma <- 0.01
-sigma_beta <- 0.05
+########################################
+####Double Metropolis Hastings by block#
+########################################
 
-#Run
+#Number of chains
+nchains <- 1
+#Number of blocks
+nb <- 3
 
-sample <- autoMultiDMH(data=data, X=X, k=k, p=p, nobj=nobj, 
-                       outer=outer, inner=inner, 
-                       initial_gamma=initial_gamma, 
-                       initial_beta=initial_beta, 
-                       sigma_gamma=sigma_gamma, sigma_beta=sigma_beta)
+# #Outer samples
 
-save(sample, file = sprintf("postSampleCAR_inner%d.RData", inner))
+star <- proc.time()
+result <- autoMultiDMH_block(data=data, X=X, k=k, p=p, nobj=nobj, 
+                             outer=outer, inner=inner, ini_val=ini_val,
+                             ib=ib, cov_p=cov_p)
+end <- proc.time()-star
+end
 
+save(result, file=paste0("postSampleCAR_inner", inner, ".RData"))
+
+
+###########################
+###Diagnostic##############
+###########################
+
+sample <- result$post_sample
 
 sample_nburn <- sample[-c(1:burnin),]
 
@@ -77,31 +133,27 @@ u_gamma <- u_sample[,-c(1:(p*(k-1)))]
 #number of unique posterior values
 nsample <- nrow(u_beta)
 
-###############################
-####Diagnostics################
-###############################
-
 #Auxiliary samples 
-ini_cycle <- 1000
+ini_cycle <- 20
 
 # Detect SLURM cores
 n_cores <- as.numeric(Sys.getenv("SLURM_CPUS_PER_TASK", unset = 1))
 
+#n_cores <- 4
+
 # Setup parallel backend
-cl <- makeCluster(n_cores)
-registerDoParallel(cl)
+registerDoParallel(cores = n_cores)
 
 ##Start parallelize
 
 dvalues <- foreach(i= 1:nsample, .combine = rbind) %dopar% {
   
-  library(reticulate)
-  library(automultinomial)
-  
-  numpy <- import("numpy")
-  py_require("jax")
-  jax <- import("jax")
-  jnp <- import("jax.numpy")
+ if (!exists("jax_initialized")) {
+    library(reticulate)
+    jax <- import("jax")
+    source_python("FunctionACDAutomultinomial.py")
+    jax_initialized <- TRUE
+  }
   
   
   #Call functions
@@ -126,7 +178,7 @@ dvalues <- foreach(i= 1:nsample, .combine = rbind) %dopar% {
 }
 
 # Stop cluster
-stopCluster(cl)
+stopImplicitCluster()
 
 #Bind repeated dvalues
 count_row_repeats_simple <- function(A, B) {
@@ -137,8 +189,17 @@ count_row_repeats_simple <- function(A, B) {
 nrep  <- count_row_repeats_simple(u_sample, thin_sample)
 dfull <-  dvalues[rep(seq_len(nrow(dvalues)), nrep), ]
 
+
 Sigma <- f_Vhat_bm(d=dfull, N=n_aux)
 acd <- ACD_bm(d=dfull, N=n_aux)
+
+qchisq(0.99, rankMatrix(Sigma))
+
+n <- nrow(dfull)
+
+ac <- result$ap
+
+save(acd, thin_sample, dfull, ac, file = paste0("dVecCAR_T_inner",inner,".RData"))
 
 
 save(acd, thin_sample, dfull, file = sprintf("dVecCAR_id%d.RData", task_id))
