@@ -1,4 +1,8 @@
 library(reticulate)
+
+mi_python_jax <- "/.conda/envs/jax_env/bin/python" #pyhton dir
+use_python(mi_python_jax, required = TRUE)
+
 library(doParallel)
 library(foreach)
 library(automultinomial)
